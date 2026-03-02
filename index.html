@@ -514,48 +514,62 @@
             document.getElementById('chat-widget').classList.toggle('open'); 
         }
 
-        // Komunikace s umělou inteligencí
+        // Chytrá komunikace s umělou inteligencí (Auto-Fallback systém)
         async function fetchGemini(parts, systemPrompt, useJson = false) {
-            // Použití stabilní produkční verze API (v1) a stabilního modelu (gemini-1.5-flash)
-            const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-            const config = {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: parts,
-                    systemInstruction: { parts: [{ text: systemPrompt }] },
-                    // Odstraněna restrikce na JSON mimeType, aby API nenarazilo na limitace modelu
-                })
-            };
+            // Seznam modelů, které aplikace zkusí jeden po druhém
+            const models = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-flash-8b', 'gemini-pro'];
+            let lastError = "Neznámá chyba";
 
-            let delay = 1000;
-            for(let i=0; i<5; i++) {
+            for (const model of models) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                
+                let payload = {
+                    contents: parts,
+                    systemInstruction: { parts: [{ text: systemPrompt }] }
+                };
+
+                // Nastavení JSON formátu kromě starého modelu, který to nepodporuje takto nativně
+                if (useJson && model !== 'gemini-pro') {
+                    payload.generationConfig = { responseMimeType: "application/json" };
+                }
+
+                // Pokud použijeme úplně nejstarší záložní model (gemini-pro), musíme system prompt narvat přímo do zprávy
+                if (model === 'gemini-pro') {
+                    payload = {
+                        contents: [
+                            { role: "user", parts: [{ text: "ZÁKLADNÍ INSTRUKCE PRO TEBE: " + systemPrompt }] },
+                            { role: "model", parts: [{ text: "Rozumím. Budu se tím řídit ve všech dalších odpovědích." }] },
+                            ...parts
+                        ]
+                    };
+                }
+
                 try {
-                    const res = await fetch(url, config);
-                    if(!res.ok) {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!res.ok) {
                         const errData = await res.json().catch(() => ({}));
-                        console.error("Detailní chyba AI API:", errData);
-                        
-                        if (i === 4) {
-                            alert(`Chyba spojení s AI: ${errData.error?.message || res.statusText}\nZkontroluj konzoli (F12).`);
-                        }
-                        throw new Error(`API vrátilo chybu: ${res.status}`);
+                        lastError = errData.error?.message || res.statusText;
+                        console.warn(`Model ${model} zamítnut:`, lastError);
+                        continue; // Tento model nefunguje, jdeme zkusit další v pořadí!
                     }
+
                     const data = await res.json();
-                    
-                    if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts.length > 0) {
-                        return data.candidates[0].content.parts[0].text;
-                    } else {
-                        throw new Error("AI nevrátila očekávanou strukturu dat.");
+                    if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts.length > 0) {
+                        return data.candidates[0].content.parts[0].text; // Úspěch! Vracíme text.
                     }
-                    
                 } catch(e) {
-                    console.warn(`Pokus ${i+1} selhal:`, e);
-                    if (i === 4) throw e;
-                    await new Promise(r => setTimeout(r, delay));
-                    delay *= 2;
+                    console.warn(`Chyba sítě u ${model}:`, e);
+                    lastError = e.message;
                 }
             }
+
+            // Pokud selžou úplně všechny 4 modely, vyhodíme chybu, kterou ukážeme uživateli
+            throw new Error(lastError);
         }
 
 
@@ -687,7 +701,8 @@ FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 
                 appendMessage('borek', cleanResponse);
             } catch(e) { 
                 console.error("Chyba v chatu:", e);
-                appendMessage('borek', "Pardon, hapruje mi spojení s centrálou, zkuste to za chvilku."); 
+                // Vypíšeme uživateli přesnou chybu, proč to selhalo
+                appendMessage('borek', "⚠️ Omlouvám se, mám technický problém s napojením na Google API. Chyba: " + e.message); 
             }
         });
 
@@ -815,8 +830,8 @@ Pokud máš vše potřebné, vrať:
                 console.error("Chyba při zpracování AI dat:", e);
                 loading.classList.add('hidden');
                 replyArea.classList.remove('hidden');
-                // Uživateli nebudeme zobrazovat alert, aby to nepůsobilo agresivně na webu, stačí změna textu v tlačítku nebo konzole
-                alert("Něco se pokazilo při analýze. Zkuste to prosím znovu.");
+                // Vypíšeme uživateli přesnou chybu
+                alert(`Něco se pokazilo při analýze.\nChyba: ${e.message}\n\nZkuste to prosím znovu.`);
             } finally {
                 if(btnInitial) btnInitial.disabled = false;
                 if(btnReply) btnReply.disabled = false;
