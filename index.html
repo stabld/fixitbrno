@@ -170,7 +170,7 @@
                     <a href="#jak-to-funguje" class="nav-item relative text-sm font-bold text-slate-600 dark:text-slate-400 hover:text-fixit-500 transition">Jak to funguje</a>
                     <a href="#ai-poptavka" class="nav-item relative text-sm font-bold text-slate-600 dark:text-slate-400 hover:text-fixit-500 transition">Tvorba Poptávky</a>
                     <a href="#newsletter" class="nav-item relative text-sm font-bold text-slate-600 dark:text-slate-400 hover:text-fixit-500 transition">Získat přístup</a>
-                    <a href="#faq" class="nav-item relative text-sm font-bold text-slate-600 dark:text-slate-400 hover:text-fixit-500 transition">FA</a>
+                    <a href="#faq" class="nav-item relative text-sm font-bold text-slate-600 dark:text-slate-400 hover:text-fixit-500 transition">FAQ</a>
                     <a href="#kontakt" class="nav-item relative text-sm font-bold text-slate-600 dark:text-slate-400 hover:text-fixit-500 transition">Kontakt</a>
                 </div>
 
@@ -515,8 +515,8 @@
 
         // Naprosto standardní volání API (Základní best-practice bez jakýchkoli oklik)
         async function fetchGemini(parts, systemPrompt, useJson = false) {
-            // Používáme stabilní model gemini-1.5-flash
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+            // OPRAVA CHYBY: Používáme stabilní produkční rozhraní v1 (místo zablokovaného v1beta)
+            const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
             
             const payload = {
                 contents: parts,
