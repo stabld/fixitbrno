@@ -506,38 +506,37 @@
     <script type="module">
         
         // --- 1. NASTAVENÍ AI (GEMINI) ---
-        // Tvůj API klíč
-        const apiKey = "AIzaSyCPsVct8pzbDxktCDrI-QYnEybvW9t4LQ4"; 
+        // VLOŽEN TVŮJ NOVÝ API KLÍČ Z GOOGLE AI STUDIA
+        const apiKey = "AIzaSyASI-FsnWqlzUmma9pezeXD-TjiGV-n8NM"; 
 
         window.toggleChat = function() { 
             document.getElementById('chat-widget').classList.toggle('open'); 
         }
 
-        // Zcela standardní, čisté volání API
-        async function callGeminiAPI(promptText, imageBase64 = null, mimeType = null) {
+        // Čisté, standardní produkční volání Gemini 1.5 Flash API
+        async function callGeminiAPI(parts, systemPrompt, useJson = false) {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
             
-            let parts = [{ text: promptText }];
+            const payload = {
+                contents: parts,
+                systemInstruction: { parts: [{ text: systemPrompt }] }
+            };
 
-            if (imageBase64 && mimeType) {
-                parts.push({
-                    inlineData: { mimeType: mimeType, data: imageBase64 }
-                });
+            if (useJson) {
+                payload.generationConfig = { responseMimeType: "application/json" };
             }
 
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ role: "user", parts: parts }]
-                })
+                body: JSON.stringify(payload)
             });
 
             const data = await response.json();
             
             if (!response.ok) {
                 console.error("Detail chyby od Googlu:", data);
-                throw new Error(data.error?.message || `Chyba API: ${response.status}`);
+                throw new Error(data.error?.message || `HTTP chyba: ${response.status}`);
             }
             
             return data.candidates[0].content.parts[0].text;
@@ -563,16 +562,18 @@
             inputEl.value = '';
             
             const systemPrompt = "Jsi Bořek, asistent platformy Fixit. Odpovídej stručně. ZÁSADNÍ: Odpovídej POUZE na základě faktů (Platforma pro drobné opravy, Escrow, KYC ověření, start 05/2026 Brno). Pokud uživatel popisuje problém, doporuč Fixit.";
-            const fullPrompt = `INSTRUKCE:\n${systemPrompt}\n\nZPRÁVA UŽIVATELE:\n${text}`;
 
             try {
-                const responseText = await callGeminiAPI(fullPrompt);
+                const responseText = await callGeminiAPI([{ role: "user", parts: [{ text: text }] }], systemPrompt, false);
                 let cleanResponse = responseText.replace(/```json/gi, '').replace(/```/g, '').replace(/[\*✨⭐]/g, '').trim();
                 appendMessage('borek', cleanResponse);
             } catch(e) { 
                 console.error("Chyba v chatu:", e);
-                // Vypíše chybu do chatu, nerozbije web
-                appendMessage('borek', `⚠️ Ahoj, Google zablokoval můj API klíč. Přesný důvod: ${e.message}. Doporučuji vygenerovat nový klíč na aistudio.google.com.`); 
+                if (e.message.includes("not found for API version") || e.message.includes("API key not valid")) {
+                    appendMessage('borek', `⚠️ API KLÍČ ZABLOKOVÁN GOOGLE:\nMusíte si vygenerovat nový API klíč na aistudio.google.com.`);
+                } else {
+                    appendMessage('borek', `⚠️ Omlouvám se, Google API nahlásilo chybu: ${e.message}`); 
+                }
             }
         });
 
@@ -640,10 +641,13 @@ ODPOVÍDEJ PŘESNĚ V TOMTO JSON FORMÁTU BEZ DALŠÍHO TEXTU KOLEM:
 Pokud se ptáš na detaily: {"status": "question", "message": "tvoje otázka"}
 Pokud máš vše: {"status": "done", "nazev": "titulek", "kategorie": "obor", "popis": "detailní popis", "nalehavost": "Vysoká/Střední/Nízká", "odhad_ceny": "cena Kč", "rada": "krátká rada"}`;
             
-            const fullPrompt = `INSTRUKCE:\n${systemPrompt}\n\nZADÁNÍ OD UŽIVATELE:\n${userInputText}`;
+            let parts = [{ text: userInputText }];
+            if (currentBase64Image && currentMimeType) {
+                parts.push({ inlineData: { mimeType: currentMimeType, data: currentBase64Image } });
+            }
 
             try {
-                const responseText = await callGeminiAPI(fullPrompt, currentBase64Image, currentMimeType);
+                const responseText = await callGeminiAPI([{ role: "user", parts: parts }], systemPrompt, true);
                 
                 let cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
                 if (cleanText.indexOf('{') !== -1 && cleanText.lastIndexOf('}') !== -1) {
@@ -673,19 +677,16 @@ Pokud máš vše: {"status": "done", "nazev": "titulek", "kategorie": "obor", "p
                     replyArea.classList.add('hidden'); 
                 }
             } catch(e) {
-                console.error("Chyba:", e);
+                console.error("Chyba API v poptávce:", e);
                 loading.classList.add('hidden');
                 
-                // Vypíše chybu přímo do hezké kartičky na webu! Zádný otravný alert.
-                document.getElementById('pop-nazev').innerText = "Chyba API Klíče";
-                document.getElementById('pop-kategorie').innerText = "CHYBA GOOGLU";
-                document.getElementById('pop-popis').innerText = `Google zamítl tento API klíč.\n\nDůvod: ${e.message}\n\nŘEŠENÍ: Jděte na stránku aistudio.google.com, přihlaste se svým Google účtem, klikněte na "Get API Key" a vygenerujte si nový klíč. Ten pak vložte do kódu.`;
-                document.getElementById('pop-nalehavost').innerText = "Kritická";
-                document.getElementById('pop-cena').innerText = "0 Kč";
-                document.getElementById('poptavka-rada-box').classList.add('hidden');
+                if (e.message.includes("not found for API version") || e.message.includes("API key not valid") || e.message.includes("403") || e.message.includes("404")) {
+                    alert("🚨 GOOGLE ZABLOKOVAL TENTO API KLÍČ\n\nTento API klíč je na straně Googlu neplatný, smazaný, nebo blokovaný pro Evropu.\n\nŘEŠENÍ:\n1. Jděte na stránku aistudio.google.com\n2. Smažte starý klíč a klikněte na Create API Key\n3. Vložte nový klíč do zdrojového kódu a nahrajte ho na Vercel.");
+                } else {
+                    alert(`Došlo k chybě: ${e.message}\nZkuste to prosím znovu.`);
+                }
 
-                resultArea.classList.remove('hidden');
-                replyArea.classList.add('hidden'); 
+                replyArea.classList.remove('hidden');
             } finally {
                 if(btnInitial) btnInitial.disabled = false;
                 if(btnReply) btnReply.disabled = false;
