@@ -502,171 +502,54 @@
         </button>
     </div>
 
-    <!-- SCRIPT PRO WEBOVKU -->
+    <!-- ČISTÝ, PRODUKČNÍ SCRIPT PRO WEBOVKU -->
     <script type="module">
         
         // --- 1. NASTAVENÍ AI (GEMINI) ---
+        // Tvůj ověřený API klíč
         const apiKey = "AIzaSyCPsVct8pzbDxktCDrI-QYnEybvW9t4LQ4"; 
 
         window.toggleChat = function() { 
             document.getElementById('chat-widget').classList.toggle('open'); 
         }
 
-        // Inteligentní funkce pro Gemini, která zkusí všechny možné verze API, dokud se netrefí
+        // Naprosto standardní volání API (Základní best-practice bez jakýchkoli oklik)
         async function fetchGemini(parts, systemPrompt, useJson = false) {
-            // Google API má chaos ve verzích. Tento seznam zaručí, že najdeme tu, kterou tvůj klíč povoluje.
-            const endpoints = [
-                "v1/models/gemini-1.5-flash",
-                "v1beta/models/gemini-1.5-flash",
-                "v1/models/gemini-1.5-flash-8b",
-                "v1beta/models/gemini-1.5-flash-8b",
-                "v1beta/models/gemini-2.5-flash"
-            ];
-
-            let lastError = "";
-
-            for (let i = 0; i < endpoints.length; i++) {
-                const endpoint = endpoints[i];
-                const url = `https://generativelanguage.googleapis.com/${endpoint}:generateContent?key=${apiKey}`;
-                
-                const payload = {
-                    contents: parts,
-                    systemInstruction: { parts: [{ text: systemPrompt }] }
-                };
-                
-                if (useJson) {
-                    payload.generationConfig = { responseMimeType: "application/json" };
-                }
-
-                try {
-                    const res = await fetch(url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts.length > 0) {
-                            return data.candidates[0].content.parts[0].text; // Úspěch! Vrátíme výsledek.
-                        }
-                    } else {
-                        const errData = await res.json().catch(() => ({}));
-                        lastError = errData.error?.message || res.statusText;
-                        console.warn(`Pokus o ${endpoint} nevyšel:`, lastError);
-                        // Pokud to nevyšlo, smyčka automaticky pokračuje dalším modelem!
-                    }
-                } catch (e) {
-                    console.warn(`Síťová chyba pro ${endpoint}:`, e);
-                    lastError = e.message;
-                }
-            }
-
-            // Pokud selhaly ÚPLNĚ VŠECHNY verze API, vyhodíme skutečnou chybu
-            throw new Error(lastError);
-        }
-
-
-        // --- 2. NASTAVENÍ DATABÁZE A FORMULÁŘE (FORMSPREE + LOCALSTORAGE) ---
-        
-        const newsletterForm = document.getElementById('contact-form');
-        const newsletterArea = document.getElementById('newsletter-area');
-        const newsletterSuccess = document.getElementById('newsletter-success');
-        const errorMsg = document.getElementById('error-msg');
-
-        newsletterForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('newsletter-btn');
-            const emailInput = document.getElementById('newsletter-email');
-            const emailValue = emailInput.value.trim().toLowerCase();
+            // Používáme stabilní model gemini-1.5-flash
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
             
-            // Lokální paměť prohlížeče proti spamu
-            let submittedEmails = JSON.parse(localStorage.getItem('fixit_subscribed_emails') || '[]');
-
-            // Kontrola duplicity emailu
-            if (submittedEmails.includes(emailValue)) {
-                const title = errorMsg.querySelector('p.font-bold');
-                const desc = errorMsg.querySelectorAll('p')[1];
-                
-                title.innerText = "Tento e-mail už u nás máte!";
-                desc.innerHTML = "Nemusíte se bát, o nic nepřijdete. Váš e-mail máme bezpečně poznačený a ozveme se vám.";
-                
-                errorMsg.classList.replace('bg-red-50', 'bg-fixit-50');
-                errorMsg.classList.replace('dark:bg-red-500/10', 'dark:bg-fixit-500/10');
-                errorMsg.classList.replace('border-red-500/20', 'border-fixit-500/20');
-                title.classList.replace('text-red-700', 'text-fixit-700');
-                title.classList.replace('dark:text-red-400', 'dark:text-fixit-400');
-                desc.classList.replace('text-red-600', 'text-fixit-600');
-                desc.classList.replace('dark:text-red-300', 'dark:text-fixit-300');
-                
-                errorMsg.classList.remove('hidden');
-                return; 
-            }
-            
-            btn.disabled = true;
-            const originalBtnText = btn.innerText;
-            btn.innerText = 'Odesílám...';
-            errorMsg.classList.add('hidden');
-
-            const data = {
-                email: emailValue,
-                _subject: "Zájemce o Fixit Brno 2026",
-                city: "Brno"
+            const payload = {
+                contents: parts,
+                systemInstruction: { parts: [{ text: systemPrompt }] }
             };
 
-            // Odeslání e-mailu na tvůj Formspree účet
+            // Nastavení, že chceme zpět čistý JSON objekt (pro sekci poptávky)
+            if (useJson) {
+                payload.generationConfig = { responseMimeType: "application/json" };
+            }
+
             try {
-                const response = await fetch('https://formspree.io/f/mojnzkbe', {
+                const response = await fetch(url, {
                     method: 'POST',
-                    body: JSON.stringify(data),
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
 
-                if (response.ok) {
-                    submittedEmails.push(emailValue);
-                    localStorage.setItem('fixit_subscribed_emails', JSON.stringify(submittedEmails));
+                const data = await response.json();
 
-                    newsletterArea.classList.add('hidden');
-                    newsletterSuccess.classList.remove('hidden');
-                } else {
-                    throw new Error("Formspree error");
+                if (!response.ok) {
+                    console.error("Google API vrátilo chybu:", data);
+                    throw new Error(data.error?.message || "Google API zamítlo požadavek.");
                 }
-            } catch (err) {
-                const title = errorMsg.querySelector('p.font-bold');
-                const desc = errorMsg.querySelectorAll('p')[1];
-                
-                title.innerText = "Něco se pokazilo.";
-                desc.innerHTML = 'Zkuste to prosím za okamžik znovu, nebo nám napište na e-mail: <br> <a href="mailto:fixitcz@seznam.cz" class="font-bold underline">fixitcz@seznam.cz</a>.';
-                
-                errorMsg.classList.replace('bg-fixit-50', 'bg-red-50');
-                errorMsg.classList.replace('dark:bg-fixit-500/10', 'dark:bg-red-500/10');
-                errorMsg.classList.replace('border-fixit-500/20', 'border-red-500/20');
-                title.classList.replace('text-fixit-700', 'text-red-700');
-                title.classList.replace('dark:text-fixit-400', 'dark:text-red-400');
-                desc.classList.replace('text-fixit-600', 'text-red-600');
-                desc.classList.replace('dark:text-fixit-300', 'dark:text-red-300');
 
-                errorMsg.classList.remove('hidden');
-                btn.disabled = false;
-                btn.innerText = originalBtnText;
+                return data.candidates[0].content.parts[0].text;
+            } catch (error) {
+                console.error("Kritická chyba fetch:", error);
+                throw error;
             }
-        });
+        }
 
-        // --- DARK MODE LOGIC ---
-        const themeToggleBtn = document.getElementById('theme-toggle');
-        const updateIcons = () => {
-            const isDark = document.documentElement.classList.contains('dark');
-            document.getElementById('theme-toggle-dark-icon')?.classList.toggle('hidden', isDark);
-            document.getElementById('theme-toggle-light-icon')?.classList.toggle('hidden', !isDark);
-        };
-        updateIcons();
-        themeToggleBtn.addEventListener('click', () => {
-            document.documentElement.classList.toggle('dark');
-            localStorage.setItem('color-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
-            updateIcons();
-        });
-
-        // --- LIVE CHAT WIDGET LOGIC ---
+        // --- 2. LOGIKA CHATU S BOŘKEM ---
         function appendMessage(role, text) {
             const chatMessages = document.getElementById('chat-messages');
             const msg = document.createElement('div');
@@ -681,6 +564,7 @@
             const inputEl = document.getElementById('chat-input');
             const text = inputEl.value.trim();
             if(!text) return;
+            
             appendMessage('user', text);
             inputEl.value = '';
             
@@ -694,14 +578,13 @@ FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 
                 let cleanResponse = responseText.replace(/```json/gi, '').replace(/```/g, '').replace(/[\*✨⭐]/g, '').trim();
                 appendMessage('borek', cleanResponse);
             } catch(e) { 
-                console.error("Chyba v chatu:", e);
-                appendMessage('borek', "⚠️ Omlouvám se, mám problém s připojením na Google API. Chyba: " + e.message); 
+                console.error("Zpráva pro vývojáře: Pokud toto vidíte na Vercelu, Google s největší pravděpodobností zablokoval požadavky z EU bez spárované karty u API klíče.");
+                appendMessage('borek', `Omlouvám se, došlo k chybě spojení. (Upozornění: Zkontrolujte práva a nastavení účtování API klíče). Detail: ${e.message}`); 
             }
         });
 
 
-        // --- SLOUČENÝ INTERAKTIVNÍ GENERÁTOR POPTÁVKY S FOTOGRAFIÍ ---
-        
+        // --- 3. GENERÁTOR POPTÁVKY ---
         const photoInput = document.getElementById('poptavka-photo');
         const photoPreview = document.getElementById('poptavka-photo-preview');
         const previewZone = document.getElementById('poptavka-preview-zone');
@@ -709,7 +592,6 @@ FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 
         let currentMimeType = null;
         let poptavkaHistory = [];
 
-        // Náhled fotky
         photoInput.addEventListener('change', function() {
             const file = this.files[0];
             if (file) {
@@ -775,25 +657,17 @@ Pokud se potřebuješ doptat, vrať:
 Pokud máš vše potřebné, vrať:
 { 
   "status": "done", 
-  "nazev": "Krátký a výstižný titulek (např. Oprava protékajícího sifonu v kuchyni)", 
-  "kategorie": "Název oboru (např. Instalatér, Truhlář)", 
-  "popis": "Bodový a jasný popis pro řemeslníka (co se stalo, stav, specifikace).", 
+  "nazev": "Krátký a výstižný titulek", 
+  "kategorie": "Název oboru (např. Instalatér)", 
+  "popis": "Bodový a jasný popis pro řemeslníka", 
   "nalehavost": "Nízká / Střední / Vysoká", 
   "odhad_ceny": "Odhad v Kč", 
-  "rada": "Jedna stručná rychlá rada, co má zákazník udělat hned, aby zabránil větší škodě (např. zavřít hlavní uzávěr vody)." 
+  "rada": "Stručná rada, co má udělat hned." 
 }`;
 
             try {
                 const responseText = await fetchGemini(poptavkaHistory, systemPrompt, true);
-                
-                // Oprava pro případy, kdy AI zabalí JSON do markdownu
-                let cleanText = responseText;
-                if (cleanText.includes('```json')) {
-                    cleanText = cleanText.split('```json')[1].split('```')[0].trim();
-                } else if (cleanText.includes('```')) {
-                    cleanText = cleanText.split('```')[1].split('```')[0].trim();
-                }
-                
+                let cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
                 const data = JSON.parse(cleanText);
                 
                 poptavkaHistory.push({ role: "model", parts: [{ text: cleanText }] });
@@ -810,7 +684,6 @@ Pokud máš vše potřebné, vrať:
                     document.getElementById('pop-nalehavost').innerText = data.nalehavost.replace(/[\*✨⭐]/g, '');
                     document.getElementById('pop-cena').innerText = data.odhad_ceny.replace(/[\*✨⭐]/g, '');
                     
-                    // Rychlá rada první pomoci
                     if(data.rada && data.rada.trim() !== "") {
                         document.getElementById('pop-rada').innerText = data.rada.replace(/[\*✨⭐]/g, '');
                         document.getElementById('poptavka-rada-box').classList.remove('hidden');
@@ -820,17 +693,15 @@ Pokud máš vše potřebné, vrať:
                     replyArea.classList.add('hidden'); 
                 }
             } catch(e) {
-                console.error("Chyba při zpracování dat:", e);
                 loading.classList.add('hidden');
                 replyArea.classList.remove('hidden');
-                alert(`CHYBA AI KLÍČE:\n\n${e.message}\n\nGoogle tento model pravděpodobně blokuje. Vygenerujte si prosím raději nový API klíč v Google AI Studio.`);
+                alert(`Chyba generování poptávky:\n${e.message}\n\n(Zkontrolujte nastavení svého API klíče v Google Cloud pro Evropu.)`);
             } finally {
                 if(btnInitial) btnInitial.disabled = false;
                 if(btnReply) btnReply.disabled = false;
             }
         }
 
-        // Tlačítko 1: Zahájení tvorby (Fotka + Text)
         document.getElementById('poptavka-btn').addEventListener('click', async () => {
             const inputEl = document.getElementById('poptavka-input');
             const text = inputEl.value.trim();
@@ -839,7 +710,6 @@ Pokud máš vše potřebné, vrať:
             document.getElementById('poptavka-initial-form').classList.add('hidden');
             document.getElementById('poptavka-chat-box').classList.remove('hidden');
             
-            // Sestavení prvního dotazu včetně fotky, pokud existuje
             let initialParts = [];
             if (text) {
                 initialParts.push({ text: text });
@@ -858,7 +728,6 @@ Pokud máš vše potřebné, vrať:
             await processPoptavka();
         });
 
-        // Tlačítko 2: Odpověď na doplňující otázku AI
         document.getElementById('poptavka-reply-btn').addEventListener('click', async () => {
             const inputEl = document.getElementById('poptavka-reply-input');
             const text = inputEl.value.trim();
@@ -878,7 +747,6 @@ Pokud máš vše potřebné, vrať:
             }
         });
 
-        // --- RESETOVÁNÍ POPTÁVKY ---
         document.getElementById('poptavka-reset-btn').addEventListener('click', (e) => {
             e.preventDefault();
             
@@ -902,10 +770,68 @@ Pokud máš vše potřebné, vrať:
             document.getElementById('poptavka-initial-form').classList.remove('hidden');
 
             const poptavkaSection = document.getElementById('ai-poptavka');
-            window.scrollTo({
-                top: poptavkaSection.offsetTop - 100,
-                behavior: 'smooth'
-            });
+            window.scrollTo({ top: poptavkaSection.offsetTop - 100, behavior: 'smooth' });
+        });
+
+
+        // --- 4. FORMULÁŘ ---
+        const newsletterForm = document.getElementById('contact-form');
+        const newsletterArea = document.getElementById('newsletter-area');
+        const newsletterSuccess = document.getElementById('newsletter-success');
+        const errorMsg = document.getElementById('error-msg');
+
+        newsletterForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('newsletter-btn');
+            const emailInput = document.getElementById('newsletter-email');
+            const emailValue = emailInput.value.trim().toLowerCase();
+            
+            let submittedEmails = JSON.parse(localStorage.getItem('fixit_subscribed_emails') || '[]');
+
+            if (submittedEmails.includes(emailValue)) {
+                const title = errorMsg.querySelector('p.font-bold');
+                const desc = errorMsg.querySelectorAll('p')[1];
+                
+                title.innerText = "Tento e-mail už u nás máte!";
+                desc.innerHTML = "Nemusíte se bát, o nic nepřijdete. Váš e-mail máme bezpečně poznačený a ozveme se vám.";
+                
+                errorMsg.classList.replace('bg-red-50', 'bg-fixit-50');
+                errorMsg.classList.replace('dark:bg-red-500/10', 'dark:bg-fixit-500/10');
+                errorMsg.classList.replace('border-red-500/20', 'border-fixit-500/20');
+                title.classList.replace('text-red-700', 'text-fixit-700');
+                title.classList.replace('dark:text-red-400', 'dark:text-fixit-400');
+                desc.classList.replace('text-red-600', 'text-fixit-600');
+                desc.classList.replace('dark:text-red-300', 'dark:text-fixit-300');
+                
+                errorMsg.classList.remove('hidden');
+                return; 
+            }
+            
+            btn.disabled = true;
+            const originalBtnText = btn.innerText;
+            btn.innerText = 'Odesílám...';
+            errorMsg.classList.add('hidden');
+
+            try {
+                const response = await fetch('https://formspree.io/f/mojnzkbe', {
+                    method: 'POST',
+                    body: JSON.stringify({ email: emailValue, _subject: "Zájemce o Fixit Brno", city: "Brno" }),
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
+                });
+
+                if (response.ok) {
+                    submittedEmails.push(emailValue);
+                    localStorage.setItem('fixit_subscribed_emails', JSON.stringify(submittedEmails));
+                    newsletterArea.classList.add('hidden');
+                    newsletterSuccess.classList.remove('hidden');
+                } else {
+                    throw new Error("Formspree chyba");
+                }
+            } catch (err) {
+                errorMsg.classList.remove('hidden');
+                btn.disabled = false;
+                btn.innerText = originalBtnText;
+            }
         });
 
         // --- SCROLLSPY ---
@@ -915,21 +841,13 @@ Pokud máš vše potřebné, vrať:
         const updateScrollSpy = () => {
             let current = '';
             sections.forEach(section => {
-                const sectionTop = section.offsetTop;
-                if (window.scrollY >= sectionTop - 150) {
-                    current = section.getAttribute('id');
-                }
+                if (window.scrollY >= section.offsetTop - 150) current = section.getAttribute('id');
             });
-
-            if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 50) {
-                current = 'kontakt';
-            }
+            if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 50) current = 'kontakt';
 
             navItems.forEach(link => {
                 link.classList.remove('nav-link-active');
-                if (current && link.getAttribute('href') === `#${current}`) {
-                    link.classList.add('nav-link-active');
-                }
+                if (current && link.getAttribute('href') === `#${current}`) link.classList.add('nav-link-active');
             });
         };
 
