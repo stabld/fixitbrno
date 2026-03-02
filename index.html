@@ -513,65 +513,40 @@
             document.getElementById('chat-widget').classList.toggle('open'); 
         }
 
-        // NEJPRIMITIVNĚJŠÍ A NEJSPOLEHLIVĚJŠÍ ZPŮSOB VOLÁNÍ GOOGLE API
-        async function fetchGemini(parts, systemPrompt, useJson = false) {
-            // Používáme stabilní model na produkční v1 (to by teď tvůj klíč měl pustit)
-            const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        // Klasické volání API "jak se to dělá" bez složitých experimentálních funkcí
+        async function callAI(text, systemInstruction, imageBase64 = null, mimeType = null) {
+            // Základní model, který Google povolí úplně na všech klíčích
+            let model = "gemini-pro";
             
-            // Místo složitých "parts", vše nacpeme do jednoho prostého textového řetězce
-            let combinedText = "INSTRUKCE PRO TEBE JAKO ASISTENTA:\n" + systemPrompt + "\n\n";
-            
-            if (useJson) {
-                combinedText += "DŮLEŽITÉ: TVÁ ODPOVĚĎ MUSÍ BÝT POUZE ČISTÝ JSON OBJEKT. Žádný další text ani markdown uvozovky.\n\n";
-            }
-            
-            combinedText += "ZPRÁVA OD UŽIVATELE (NEBO DATA PRO ANALÝZU):\n";
-            
-            // Extrakce textu z původních parts
-            let userText = "";
-            if (parts && parts.length > 0 && parts[0].parts && parts[0].parts.length > 0) {
-                 userText = parts[0].parts[0].text || "Analyzuj obrázek/žádost.";
-            }
-            combinedText += userText;
+            // Obyčejný textový požadavek bez jakýchkoliv JSON struktur
+            let parts = [
+                { text: "Tvé instrukce:\n" + systemInstruction + "\n\nZpráva od uživatele:\n" + text }
+            ];
 
-            // Vytvoříme naprosto nejjednodušší možný payload, který projde VŠUDE
-            const payload = {
-                contents: [{
-                    parts: [{
-                        text: combinedText
-                    }]
-                }]
-            };
-
-            // Přidání obrázku, pokud existuje (musí být ve stejném 'parts' poli)
-            if (parts && parts.length > 0 && parts[0].parts && parts[0].parts.length > 1 && parts[0].parts[1].inlineData) {
-                 payload.contents[0].parts.push(parts[0].parts[1]);
+            // Pokud je připojena fotka, zkusíme nový model (starý fotky neumí)
+            if (imageBase64) {
+                model = "gemini-1.5-flash"; 
+                parts.push({ inlineData: { mimeType: mimeType, data: imageBase64 } });
             }
 
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ role: "user", parts: parts }]
+                })
+            });
 
-                const data = await response.json();
-
-                if (!response.ok) {
-                    console.error("Chyba Google API:", data);
-                    throw new Error(data.error?.message || `Chyba API: ${response.status}`);
-                }
-
-                if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts.length > 0) {
-                    return data.candidates[0].content.parts[0].text;
-                } else {
-                    throw new Error("AI nevrátila žádný textový výsledek.");
-                }
-
-            } catch (error) {
-                console.error("Kritická chyba spojení:", error);
-                throw error;
+            const data = await response.json();
+            
+            if (!response.ok) {
+                console.error("Detail chyby:", data);
+                throw new Error(data.error?.message || "Chyba API");
             }
+            
+            return data.candidates[0].content.parts[0].text;
         }
 
         // --- 2. LOGIKA CHATU S BOŘKEM ---
@@ -593,19 +568,15 @@
             appendMessage('user', text);
             inputEl.value = '';
             
-            const systemPrompt = `Jsi Bořek, live asistent platformy Fixit. Mluvíš přátelsky, občas použiješ jemný brněnský hantec, jsi profík. Odpovídej stručně (2-3 věty). Nepoužívej markdown formátování ani emotikony a hvězdičky.
-ZÁSADNÍ PRAVIDLO 1: Odpovídej POUZE na základě níže uvedených faktů. Pokud se tě ptají na něco mimo tato fakta, slušně řekni, že na to nemáš informace, a odkaž na e-mail fixitcz@seznam.cz. Nic si nevymýšlej!
-ZÁSADNÍ PRAVIDLO 2: Pokud uživatel popisuje problém v domácnosti, doporuč mu využít platformu Fixit.
-FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 05/2026 Brno.`;
+            const systemPrompt = "Jsi Bořek, live asistent platformy Fixit. Mluvíš přátelsky, občas použiješ jemný brněnský hantec, jsi profík. Odpovídej stručně (2-3 věty). Nepoužívej markdown formátování ani emotikony a hvězdičky.\nZÁSADNÍ PRAVIDLO 1: Odpovídej POUZE na základě níže uvedených faktů. Pokud se tě ptají na něco mimo tato fakta, slušně řekni, že na to nemáš informace, a odkaž na e-mail fixitcz@seznam.cz. Nic si nevymýšlej!\nZÁSADNÍ PRAVIDLO 2: Pokud uživatel popisuje problém v domácnosti, doporuč mu využít platformu Fixit.\nFAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 05/2026 Brno.";
 
             try {
-                // Posíláme jednoduché parts, fetchGemini si je zpracuje
-                const responseText = await fetchGemini([{ role: "user", parts: [{ text: text }] }], systemPrompt);
+                const responseText = await callAI(text, systemPrompt);
                 let cleanResponse = responseText.replace(/```json/gi, '').replace(/```/g, '').replace(/[\*✨⭐]/g, '').trim();
                 appendMessage('borek', cleanResponse);
             } catch(e) { 
-                console.error("Chyba komunikace s Bořkem:", e);
-                appendMessage('borek', `Spojení selhalo. Možná chyba Google API. Info: ${e.message}`); 
+                console.error("Chyba v chatu:", e);
+                appendMessage('borek', `Omlouvám se, spojení s Google API selhalo: ${e.message}`); 
             }
         });
 
@@ -616,7 +587,7 @@ FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 
         const previewZone = document.getElementById('poptavka-preview-zone');
         let currentBase64Image = null;
         let currentMimeType = null;
-        let poptavkaHistory = [];
+        let poptavkaHistoryText = "";
 
         photoInput.addEventListener('change', function() {
             const file = this.files[0];
@@ -655,7 +626,7 @@ FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        async function processPoptavka() {
+        async function processPoptavka(userInputText) {
             const loading = document.getElementById('poptavka-loading');
             const replyArea = document.getElementById('poptavka-reply-area');
             const resultArea = document.getElementById('poptavka-result');
@@ -668,45 +639,22 @@ FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 
             loading.classList.remove('hidden');
             replyArea.classList.add('hidden');
 
-            const systemPrompt = `Jsi Bořek, profesionální technik a asistent platformy Fixit. Uživatel potřebuje opravit závadu v domácnosti a pošle ti popis a případně fotku. Tvým úkolem je zjistit dostatek informací a vytvořit strukturovanou poptávku pro řemeslníka.
-
-ZÁSADNÍ PRAVIDLA:
-1. Pokud fotka nebo popis neobsahuje klíčové detaily pro řemeslníka (např. chybí rozměry, typ materiálu, kde přesně to je), ZEPTEJ SE NA TO. Zeptej se přátelsky, stručně, max 1-2 otázky.
-2. Jakmile máš dostatek informací z fotky a konverzace, vytvoř finální poptávku.
-3. Nepoužívej žádné emoji, hvězdičky ani formátování.
-
-Vždy vrať POUZE platný JSON bez textu okolo! 
-
-Pokud se potřebuješ doptat, vrať:
-{ "status": "question", "message": "Tvoje doplňující otázka na uživatele." }
-
-Pokud máš vše potřebné, vrať:
-{ 
-  "status": "done", 
-  "nazev": "Krátký a výstižný titulek", 
-  "kategorie": "Název oboru (např. Instalatér)", 
-  "popis": "Bodový a jasný popis pro řemeslníka", 
-  "nalehavost": "Nízká / Střední / Vysoká", 
-  "odhad_ceny": "Odhad v Kč", 
-  "rada": "Stručná rada, co má udělat hned." 
-}`;
+            const systemPrompt = `Jsi Bořek, profesionální technik. Vytvoř zadání pro řemeslníka z tohoto popisu uživatele.
+Pokud chybí kritické info (např. materiál, rozměry), zeptej se uživatele!
+ODPOVÍDEJ PŘESNĚ V TOMTO JSON FORMÁTU BEZ JAKÉHOKOLIV DALŠÍHO TEXTU KOLEM:
+Pokud se ptáš: {"status": "question", "message": "tvoje otázka"}
+Pokud máš vše: {"status": "done", "nazev": "titulek", "kategorie": "obor", "popis": "detailní popis", "nalehavost": "Vysoká/Střední/Nízká", "odhad_ceny": "cena Kč", "rada": "krátká rada"}`;
 
             try {
-                // Přeposíláme pouze poslední zprávu z historie, aby to bylo co nejjednodušší
-                const latestUserMessage = poptavkaHistory[poptavkaHistory.length - 1];
-                const responseText = await fetchGemini([latestUserMessage], systemPrompt, true);
+                const responseText = await callAI(userInputText, systemPrompt, currentBase64Image, currentMimeType);
                 
                 let cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
-                
-                // Extra pokus o vyčištění, pokud by tam AI narvala nějaký balast
                 if (cleanText.indexOf('{') !== -1 && cleanText.lastIndexOf('}') !== -1) {
                      cleanText = cleanText.substring(cleanText.indexOf('{'), cleanText.lastIndexOf('}') + 1);
                 }
 
                 const data = JSON.parse(cleanText);
                 
-                poptavkaHistory.push({ role: "model", parts: [{ text: cleanText }] });
-
                 loading.classList.add('hidden');
 
                 if (data.status === "question") {
@@ -728,10 +676,10 @@ Pokud máš vše potřebné, vrať:
                     replyArea.classList.add('hidden'); 
                 }
             } catch(e) {
-                console.error("Chyba generování poptávky:", e);
+                console.error("Chyba:", e);
                 loading.classList.add('hidden');
                 replyArea.classList.remove('hidden');
-                alert(`Došlo k chybě (zřejmě formátování API): ${e.message}`);
+                alert(`Došlo k chybě: ${e.message}\n(Zkontrolujte případně konzoli stisknutím F12)`);
             } finally {
                 if(btnInitial) btnInitial.disabled = false;
                 if(btnReply) btnReply.disabled = false;
@@ -746,22 +694,10 @@ Pokud máš vše potřebné, vrať:
             document.getElementById('poptavka-initial-form').classList.add('hidden');
             document.getElementById('poptavka-chat-box').classList.remove('hidden');
             
-            let initialParts = [];
-            if (text) {
-                initialParts.push({ text: text });
-                appendPoptavkaChat('user', text);
-            } else {
-                initialParts.push({ text: "Posílám fotografii problému k analýze." });
-                appendPoptavkaChat('user', "Zaslána fotografie k analýze.");
-            }
-
-            if (currentBase64Image) {
-                initialParts.push({ inlineData: { mimeType: currentMimeType, data: currentBase64Image } });
-            }
-
-            poptavkaHistory.push({ role: "user", parts: initialParts });
+            poptavkaHistoryText = text ? text : "Posílám fotografii k analýze.";
+            appendPoptavkaChat('user', poptavkaHistoryText);
             
-            await processPoptavka();
+            await processPoptavka(poptavkaHistoryText);
         });
 
         document.getElementById('poptavka-reply-btn').addEventListener('click', async () => {
@@ -770,10 +706,10 @@ Pokud máš vše potřebné, vrať:
             if(!text) return;
             
             appendPoptavkaChat('user', text);
-            poptavkaHistory.push({ role: "user", parts: [{ text: text }] });
+            poptavkaHistoryText += `\nUpřesnění od uživatele: ${text}`;
             inputEl.value = '';
             
-            await processPoptavka();
+            await processPoptavka(poptavkaHistoryText);
         });
 
         document.getElementById('poptavka-reply-input').addEventListener('keypress', function (e) {
@@ -785,8 +721,7 @@ Pokud máš vše potřebné, vrať:
 
         document.getElementById('poptavka-reset-btn').addEventListener('click', (e) => {
             e.preventDefault();
-            
-            poptavkaHistory = [];
+            poptavkaHistoryText = "";
             currentBase64Image = null;
             currentMimeType = null;
             
