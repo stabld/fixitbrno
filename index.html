@@ -512,53 +512,58 @@
             document.getElementById('chat-widget').classList.toggle('open'); 
         }
 
-        // Ultimátní fallback funkce pro Gemini
+        // Inteligentní funkce pro Gemini, která zkusí všechny možné verze API, dokud se netrefí
         async function fetchGemini(parts, systemPrompt, useJson = false) {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-            
-            const payload = {
-                contents: parts,
-                systemInstruction: { parts: [{ text: systemPrompt }] }
-            };
-            if (useJson) {
-                payload.generationConfig = { responseMimeType: "application/json" };
-            }
+            // Google API má chaos ve verzích. Tento seznam zaručí, že najdeme tu, kterou tvůj klíč povoluje.
+            const endpoints = [
+                "v1/models/gemini-1.5-flash",
+                "v1beta/models/gemini-1.5-flash",
+                "v1/models/gemini-1.5-flash-8b",
+                "v1beta/models/gemini-1.5-flash-8b",
+                "v1beta/models/gemini-2.5-flash"
+            ];
 
-            try {
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+            let lastError = "";
 
-                if (!res.ok) {
-                    throw new Error("API_FAIL");
-                }
-
-                const data = await res.json();
-                return data.candidates[0].content.parts[0].text;
-            } catch (err) {
-                console.warn("AI API selhalo (Pravděpodobně Google blokace pro EU). Přepínám na vizuální záložní režim, aby web nepadal.");
+            for (let i = 0; i < endpoints.length; i++) {
+                const endpoint = endpoints[i];
+                const url = `https://generativelanguage.googleapis.com/${endpoint}:generateContent?key=${apiKey}`;
                 
-                // Simulace prodlevy, aby to působilo jako reálné načítání
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                const payload = {
+                    contents: parts,
+                    systemInstruction: { parts: [{ text: systemPrompt }] }
+                };
                 
-                // NÁHRADNÍ REŽIM, ABY WEB ZŮSTAL FUNKČNÍ A PREZENTOVATELNÝ
                 if (useJson) {
-                    let uzivatelskyText = parts[0]?.parts?.[0]?.text || "Závada v domácnosti";
-                    return JSON.stringify({
-                        status: "done",
-                        nazev: "Oprava: " + uzivatelskyText.substring(0, 30) + "...",
-                        kategorie: "ÚDRŽBA / INSTALATÉR",
-                        popis: "Tento text je ukázkovou simulací.\nGoogle blokuje bezplatná API z Evropských IP adres.\n\nPRO ZPROVOZNĚNÍ AI: Zapněte si v Google Cloud fakturaci, nebo použijte placený účet.",
-                        nalehavost: "Střední",
-                        odhad_ceny: "Dle dohody Kč",
-                        rada: "Jako první vždy zamezte vzniku dalších škod (např. zavřete hlavní uzávěr)."
+                    payload.generationConfig = { responseMimeType: "application/json" };
+                }
+
+                try {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
                     });
-                } else {
-                    return "⚠️ Omlouvám se, jedu teď v offline ukázkovém režimu. Google totiž z Evropy blokuje volání bezplatného API bez přidané platební karty (Chyba 404). Pro zprovoznění chatu musíte v Google Cloud projektu zapnout fakturaci. Ale design webu máte super! 😊";
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts.length > 0) {
+                            return data.candidates[0].content.parts[0].text; // Úspěch! Vrátíme výsledek.
+                        }
+                    } else {
+                        const errData = await res.json().catch(() => ({}));
+                        lastError = errData.error?.message || res.statusText;
+                        console.warn(`Pokus o ${endpoint} nevyšel:`, lastError);
+                        // Pokud to nevyšlo, smyčka automaticky pokračuje dalším modelem!
+                    }
+                } catch (e) {
+                    console.warn(`Síťová chyba pro ${endpoint}:`, e);
+                    lastError = e.message;
                 }
             }
+
+            // Pokud selhaly ÚPLNĚ VŠECHNY verze API, vyhodíme skutečnou chybu
+            throw new Error(lastError);
         }
 
 
@@ -690,8 +695,7 @@ FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 
                 appendMessage('borek', cleanResponse);
             } catch(e) { 
                 console.error("Chyba v chatu:", e);
-                // Jelikož funkce fetchGemini teď vždycky vrací string i při chybě, tento catch se už moc neaktivuje
-                appendMessage('borek', "Pardon, hapruje mi spojení s centrálou, zkuste to za chvilku."); 
+                appendMessage('borek', "⚠️ Omlouvám se, mám problém s připojením na Google API. Chyba: " + e.message); 
             }
         });
 
@@ -819,7 +823,7 @@ Pokud máš vše potřebné, vrať:
                 console.error("Chyba při zpracování dat:", e);
                 loading.classList.add('hidden');
                 replyArea.classList.remove('hidden');
-                alert(`Něco se pokazilo při analýze.\nZkuste to prosím znovu.`);
+                alert(`CHYBA AI KLÍČE:\n\n${e.message}\n\nGoogle tento model pravděpodobně blokuje. Vygenerujte si prosím raději nový API klíč v Google AI Studio.`);
             } finally {
                 if(btnInitial) btnInitial.disabled = false;
                 if(btnReply) btnReply.disabled = false;
