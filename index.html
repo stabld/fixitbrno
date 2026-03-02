@@ -518,15 +518,29 @@
             // OPRAVA CHYBY: Používáme stabilní produkční rozhraní v1 (místo zablokovaného v1beta)
             const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
             
-            const payload = {
-                contents: parts,
-                systemInstruction: { parts: [{ text: systemPrompt }] }
-            };
+            // Hluboká kopie, abychom nepřepisovali původní pole
+            let payloadContents = JSON.parse(JSON.stringify(parts));
 
-            // Nastavení, že chceme zpět čistý JSON objekt (pro sekci poptávky)
-            if (useJson) {
-                payload.generationConfig = { responseMimeType: "application/json" };
+            // FÍGL NA STARŠÍ GOOGLE SERVERY: 
+            // Vložíme systémové instrukce a požadavek na formát přímo do textu první zprávy uživatele.
+            // Tím se vyhneme chybám "Unknown name systemInstruction" a "responseMimeType".
+            if (payloadContents.length > 0 && payloadContents[0].role === "user") {
+                let instrukce = `[TVÉ INSTRUKCE JAKO ASISTENTA]:\n${systemPrompt}\n\n`;
+                if (useJson) {
+                    instrukce += `[FORMÁT ODPOVĚDI]: VRAŤ POUZE A JENOM ČISTÝ JSON OBJEKT! Žádný text okolo, žádné markdown značky s uvozovkami.\n\n`;
+                }
+                
+                // Sloučíme to s existujícím textem (nebo vložíme na začátek)
+                if (payloadContents[0].parts.length > 0 && payloadContents[0].parts[0].text) {
+                    payloadContents[0].parts[0].text = instrukce + "[DOTAZ UŽIVATELE]:\n" + payloadContents[0].parts[0].text;
+                } else {
+                    payloadContents[0].parts.unshift({ text: instrukce });
+                }
             }
+
+            const payload = {
+                contents: payloadContents
+            };
 
             try {
                 const response = await fetch(url, {
