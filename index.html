@@ -506,8 +506,8 @@
     <script type="module">
         
         // --- 1. NASTAVENÍ AI (GEMINI) ---
-        // VLOŽENO: Tvůj API klíč pro umělou inteligenci
-        const apiKey = "AIzaSyCPsVct8pzbDxktCDrI-QYnEybvW9t4LQ4"; 
+        // VLOŽENO: Prázdný klíč - prostředí náhledu si ho doplní samo
+        const apiKey = ""; 
 
         // Funkce pro otevírání chatu
         window.toggleChat = function() { 
@@ -516,16 +516,15 @@
 
         // Komunikace s umělou inteligencí
         async function fetchGemini(parts, systemPrompt, useJson = false) {
-            // Používáme stabilní 'latest' verzi modelu, která má nejlepší podporu
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+            // Vráceno na model, který je s jistotou podporovaný
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
             const config = {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: parts,
                     systemInstruction: { parts: [{ text: systemPrompt }] },
-                    // Pokud chceme JSON, vyžádáme si ho výslovně
-                    generationConfig: useJson ? { responseMimeType: "application/json" } : {}
+                    // Odstraněna restrikce na JSON mimeType, aby API nenarazilo na limitace modelu
                 })
             };
 
@@ -534,13 +533,10 @@
                 try {
                     const res = await fetch(url, config);
                     if(!res.ok) {
-                        const errData = await res.json();
-                        console.error("Detailní chyba AI API:", errData);
                         throw new Error(`API vrátilo chybu: ${res.status}`);
                     }
                     const data = await res.json();
                     
-                    // Bezpečné získání textu
                     if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts.length > 0) {
                         return data.candidates[0].content.parts[0].text;
                     } else {
@@ -813,6 +809,7 @@ Pokud máš vše potřebné, vrať:
                 console.error("Chyba při zpracování AI dat:", e);
                 loading.classList.add('hidden');
                 replyArea.classList.remove('hidden');
+                // Uživateli nebudeme zobrazovat alert, aby to nepůsobilo agresivně na webu, stačí změna textu v tlačítku nebo konzole
                 alert("Něco se pokazilo při analýze. Zkuste to prosím znovu.");
             } finally {
                 if(btnInitial) btnInitial.disabled = false;
