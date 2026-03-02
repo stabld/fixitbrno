@@ -513,34 +513,40 @@
             document.getElementById('chat-widget').classList.toggle('open'); 
         }
 
-        // Naprosto standardní volání API (Základní best-practice bez jakýchkoli oklik)
+        // NEJPRIMITIVNĚJŠÍ A NEJSPOLEHLIVĚJŠÍ ZPŮSOB VOLÁNÍ GOOGLE API
         async function fetchGemini(parts, systemPrompt, useJson = false) {
-            // OPRAVA CHYBY: Používáme stabilní produkční rozhraní v1 (místo zablokovaného v1beta)
+            // Používáme stabilní model na produkční v1 (to by teď tvůj klíč měl pustit)
             const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
             
-            // Hluboká kopie, abychom nepřepisovali původní pole
-            let payloadContents = JSON.parse(JSON.stringify(parts));
-
-            // FÍGL NA STARŠÍ GOOGLE SERVERY: 
-            // Vložíme systémové instrukce a požadavek na formát přímo do textu první zprávy uživatele.
-            // Tím se vyhneme chybám "Unknown name systemInstruction" a "responseMimeType".
-            if (payloadContents.length > 0 && payloadContents[0].role === "user") {
-                let instrukce = `[TVÉ INSTRUKCE JAKO ASISTENTA]:\n${systemPrompt}\n\n`;
-                if (useJson) {
-                    instrukce += `[FORMÁT ODPOVĚDI]: VRAŤ POUZE A JENOM ČISTÝ JSON OBJEKT! Žádný text okolo, žádné markdown značky s uvozovkami.\n\n`;
-                }
-                
-                // Sloučíme to s existujícím textem (nebo vložíme na začátek)
-                if (payloadContents[0].parts.length > 0 && payloadContents[0].parts[0].text) {
-                    payloadContents[0].parts[0].text = instrukce + "[DOTAZ UŽIVATELE]:\n" + payloadContents[0].parts[0].text;
-                } else {
-                    payloadContents[0].parts.unshift({ text: instrukce });
-                }
+            // Místo složitých "parts", vše nacpeme do jednoho prostého textového řetězce
+            let combinedText = "INSTRUKCE PRO TEBE JAKO ASISTENTA:\n" + systemPrompt + "\n\n";
+            
+            if (useJson) {
+                combinedText += "DŮLEŽITÉ: TVÁ ODPOVĚĎ MUSÍ BÝT POUZE ČISTÝ JSON OBJEKT. Žádný další text ani markdown uvozovky.\n\n";
             }
+            
+            combinedText += "ZPRÁVA OD UŽIVATELE (NEBO DATA PRO ANALÝZU):\n";
+            
+            // Extrakce textu z původních parts
+            let userText = "";
+            if (parts && parts.length > 0 && parts[0].parts && parts[0].parts.length > 0) {
+                 userText = parts[0].parts[0].text || "Analyzuj obrázek/žádost.";
+            }
+            combinedText += userText;
 
+            // Vytvoříme naprosto nejjednodušší možný payload, který projde VŠUDE
             const payload = {
-                contents: payloadContents
+                contents: [{
+                    parts: [{
+                        text: combinedText
+                    }]
+                }]
             };
+
+            // Přidání obrázku, pokud existuje (musí být ve stejném 'parts' poli)
+            if (parts && parts.length > 0 && parts[0].parts && parts[0].parts.length > 1 && parts[0].parts[1].inlineData) {
+                 payload.contents[0].parts.push(parts[0].parts[1]);
+            }
 
             try {
                 const response = await fetch(url, {
@@ -552,13 +558,18 @@
                 const data = await response.json();
 
                 if (!response.ok) {
-                    console.error("Google API vrátilo chybu:", data);
-                    throw new Error(data.error?.message || "Google API zamítlo požadavek.");
+                    console.error("Chyba Google API:", data);
+                    throw new Error(data.error?.message || `Chyba API: ${response.status}`);
                 }
 
-                return data.candidates[0].content.parts[0].text;
+                if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts.length > 0) {
+                    return data.candidates[0].content.parts[0].text;
+                } else {
+                    throw new Error("AI nevrátila žádný textový výsledek.");
+                }
+
             } catch (error) {
-                console.error("Kritická chyba fetch:", error);
+                console.error("Kritická chyba spojení:", error);
                 throw error;
             }
         }
@@ -588,12 +599,13 @@ ZÁSADNÍ PRAVIDLO 2: Pokud uživatel popisuje problém v domácnosti, doporuč 
 FAKTA: Platforma pro drobné opravy, Escrow platby, KYC ověření, spuštění 05/2026 Brno.`;
 
             try {
-                const responseText = await fetchGemini([{ role: "user", parts: [{ text }] }], systemPrompt);
+                // Posíláme jednoduché parts, fetchGemini si je zpracuje
+                const responseText = await fetchGemini([{ role: "user", parts: [{ text: text }] }], systemPrompt);
                 let cleanResponse = responseText.replace(/```json/gi, '').replace(/```/g, '').replace(/[\*✨⭐]/g, '').trim();
                 appendMessage('borek', cleanResponse);
             } catch(e) { 
-                console.error("Zpráva pro vývojáře: Pokud toto vidíte na Vercelu, Google s největší pravděpodobností zablokoval požadavky z EU bez spárované karty u API klíče.");
-                appendMessage('borek', `Omlouvám se, došlo k chybě spojení. (Upozornění: Zkontrolujte práva a nastavení účtování API klíče). Detail: ${e.message}`); 
+                console.error("Chyba komunikace s Bořkem:", e);
+                appendMessage('borek', `Spojení selhalo. Možná chyba Google API. Info: ${e.message}`); 
             }
         });
 
@@ -680,8 +692,17 @@ Pokud máš vše potřebné, vrať:
 }`;
 
             try {
-                const responseText = await fetchGemini(poptavkaHistory, systemPrompt, true);
+                // Přeposíláme pouze poslední zprávu z historie, aby to bylo co nejjednodušší
+                const latestUserMessage = poptavkaHistory[poptavkaHistory.length - 1];
+                const responseText = await fetchGemini([latestUserMessage], systemPrompt, true);
+                
                 let cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+                
+                // Extra pokus o vyčištění, pokud by tam AI narvala nějaký balast
+                if (cleanText.indexOf('{') !== -1 && cleanText.lastIndexOf('}') !== -1) {
+                     cleanText = cleanText.substring(cleanText.indexOf('{'), cleanText.lastIndexOf('}') + 1);
+                }
+
                 const data = JSON.parse(cleanText);
                 
                 poptavkaHistory.push({ role: "model", parts: [{ text: cleanText }] });
@@ -707,9 +728,10 @@ Pokud máš vše potřebné, vrať:
                     replyArea.classList.add('hidden'); 
                 }
             } catch(e) {
+                console.error("Chyba generování poptávky:", e);
                 loading.classList.add('hidden');
                 replyArea.classList.remove('hidden');
-                alert(`Chyba generování poptávky:\n${e.message}\n\n(Zkontrolujte nastavení svého API klíče v Google Cloud pro Evropu.)`);
+                alert(`Došlo k chybě (zřejmě formátování API): ${e.message}`);
             } finally {
                 if(btnInitial) btnInitial.disabled = false;
                 if(btnReply) btnReply.disabled = false;
